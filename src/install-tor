@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+curl -fsSL https://deb.torproject.org/torproject.org/A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89.asc \
+  -Lx http://188.121.112.83:2050 | gpg --dearmor | tee /usr/share/keyrings/tor-archive-keyring.gpg >/dev/null
+
+echo \
+  "deb [signed-by=/usr/share/keyrings/tor-archive-keyring.gpg] https://deb.torproject.org/torproject.org $(. /etc/os-release && echo "$VERSION_CODENAME") main" |
+  sudo tee /etc/apt/sources.list.d/tor.list >/dev/null
+
+sudo tee /etc/apt/apt.conf.d/69proxy <<'EOF'
+Acquire::http::Proxy "http://188.121.112.83:2050";
+Acquire::https::Proxy "http://188.121.112.83:2050";
+EOF
+
+sudo apt-get update
+sudo apt-get install -y tor nyx obfs4proxy
+
+sudo rm /etc/apt/apt.conf.d/69proxy

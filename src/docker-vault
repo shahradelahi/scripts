@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+
+set -e
+
+function install_vault() {
+  sudo apt update
+  sudo apt install jq gpg -y
+  curl -fsSL https://apt.releases.hashicorp.com/gpg \
+    -Lx http://188.121.112.83:2050 | gpg --dearmor | tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
+  echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+  sudo apt update && sudo apt install vault -y
+}
+
+function arg_exists() {
+  shift
+  local found="$(echo "$@" | grep -e " $1 " -e "^$1 " -e " $1$")"
+  if [ -n "$found" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function login_vault() {
+  local address="$1"
+  local secret="$2"
+  local result=$(echo "$secret" | sudo vault login -address "$address" -method=token -)
+  if [[ "$result" == *"Success! You are now authenticated."* ]]; then
+    echo "LoggedIn."
+  else
+    echo "Failed."
+    exit 1
+  fi
+}
+
+function logout_vault() {
+  sudo vault logout -address "https://vault.arvanbourse.com"
+}
+
+if [ ! -f "$(pwd)/docker-compose.yml" ]; then
+  echo "We could not find a Docker Compose file in the current directory."
+  exit 1
+fi
+
+function has_access() {
+  local secrets_path="$1"
+  local result=$(sudo vault kv get -address "$vault_address" -format=json "$secrets_path" 2>&1)
+  if [[ "$result" == *"permission denied"* ]] || [[ "$result" == *"Error"* ]]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+vault_address="$1"
+if [ -z "$vault_address" ]; then
+  read -p "Vault Address: " -r vault_address
+fi
+
+read -p "Vault Secret: " -s -r vault_secret
+echo ""
+
+read -p "Secret Path (spread with comma): " -r vault_secret_path
+if [ -z "$vault_secret_path" ]; then
+  echo "Secret path is empty."
+  exit 1
+fi
+NO_REASON=',' read -ra VAULT_SECRET_PATHS <<<"$vault_secret_path"
+FIRST_SECRET_PATH="${VAULT_SECRET_PATHS[0]}"
+
+read -p "Docker compose options (leave blank to skip): " -r COMPOSE_OPTS
+
+echo "Checking for access..."
+if ! has_access "$vault_secret_path"; then
+  echo -n "Logging into the vault... "
+  login_vault "$vault_address" "$FIRST_SECRET_PATH"
+fi
+
+if ! has_access "$vault_secret_path"; then
+  echo "Failed to gain access to the vault."
+  exit 1
+fi
+
+function write_secrets() {
+  local SECRET_PATH="$1"
+  if [ -z "$SECRET_PATH" ]; then
+    echo "Secret path is empty."
+    exit 1
+  fi
+  local VAULT_DATA=$(sudo vault kv get -address "$vault_address" -format=json "$SECRET_PATH" | jq -r '.data.data | to_entries[] | "\(.key)=\(.value)"')
+  if [ -f .env.local ]; then
+    echo "$VAULT_DATA" >>.env
+  else
+    echo "$VAULT_DATA" >.env
+  fi
+  awk '!seen[$0]++' .env >.env.tmp && mv .env.tmp .env
+}
+
+function remove_secrets() {
+  echo -n "Removing secrets... "
+  rm -f .env
+  echo "Done."
+}
+
+echo "Fetching secrets..."
+for VAULT_SECRET_PATH in "${VAULT_SECRET_PATHS[@]}"; do
+  echo "  - $VAULT_SECRET_PATH"
+  write_secrets "$VAULT_SECRET_PATH"
+done
+
+# Check if --prune flag exists
+if arg_exists "--prune" "$@"; then
+  echo -n "Running Docker system prune (this may take some time)... "
+  sudo docker system prune -a -f
+  echo "Done."
+fi
+
+if [ -z "$COMPOSE_OPTS" ]; then
+  COMPOSE_OPTS=""
+fi
+
+if arg_exists "--remove-orphans" "$@"; then
+  COMPOSE_OPTS="$COMPOSE_OPTS --remove-orphans"
+fi
+
+COMPOSE_COMMAND="$(echo "docker compose up -d $COMPOSE_OPTS" | sed 's/  */ /g')"
+
+echo "Command: $COMPOSE_COMMAND"
+echo ""
+
+echo -n "Starting Docker compose... "
+echo ""
+sudo bash -c "$COMPOSE_COMMAND"
+echo "Done."
+
+remove_secrets

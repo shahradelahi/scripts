@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+read -p "Proxy (leave blank to remove): " proxy
+
+function is_proxy_working() {
+  echo "Checking connectivity..."
+  Content="$(curl -m 5 -Lx $1 https://www.cloudflare.com/cdn-cgi/trace/)"
+  ProxyIP="$(echo "$Content" | grep ip | awk -F= '{print $2}')"
+  if [ -n "$ProxyIP" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+if [ -z "$proxy" ]; then
+  echo "Removing Apt Proxy..."
+  sudo rm -f /etc/apt/apt.conf.d/01proxy
+  echo "Done."
+  exit 0
+fi
+
+# checking if not starts with http:// or https://
+if [[ ! "$proxy" =~ ^https?:// ]]; then
+  echo "ERR: Proxy is not valid. You should use http or https."
+  exit 1
+fi
+
+if ! is_proxy_working "$proxy"; then
+  echo "ERR: Proxy is not working."
+  exit 1
+fi
+
+echo "Proxy is working."
+echo "Adding to Apt Proxy..."
+
+sudo su -c "tee /etc/apt/apt.conf.d/01proxy <<'EOF'
+Acquire::http::Proxy \"$proxy\";
+Acquire::https::Proxy \"$proxy\";
+EOF"
+
+echo "Done."

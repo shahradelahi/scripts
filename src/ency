@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+
+# Function to display script usage
+function usage() {
+  cat <<EOF
+Usage: $0 [OPTIONS]
+Options:
+  -e, --encode       Display this help message
+  -d, --decode       Enable verbose mode
+  -t, --transform    Enable verbose mode
+  -k, --key          Enable verbose mode
+
+AES Example:
+  echo <secret> | ency -e aes -t <plain_text>
+  echo <secret> | ency -d aes -t <encrypted> | ency -d hex
+
+EOF
+}
+
+function has_argument() {
+  [[ "$1" == *=* ]] && [[ -n "${1#*=}" ]] || [[ ! -z "$2" && "$2" != -* ]]
+}
+
+function arg_exists() {
+  local arg_to_check="$1"
+
+  # Loop through the command line arguments
+  for arg in $2; do
+    if [ "$arg" == "$arg_to_check" ]; then
+      return 0 # Argument found, return success status (0)
+    fi
+  done
+
+  return 1 # Argument not found, return failure status (1)
+}
+
+function extract_argument() {
+  echo "${2:-${1#*=}}"
+}
+
+# Function to handle options and arguments
+function handle_options() {
+  rest=""
+  while [ $# -gt 0 ]; do
+    case $1 in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    -e | --encode | -d | --decode)
+      if ! has_argument "$@"; then
+        echo "File not specified." >&2
+        usage
+        exit 1
+      fi
+      if [ "$1" == "-e" ] | [ "$1" == "-e" ]; then
+        action="enc"
+      else
+        action="dec"
+      fi
+      method="$(extract_argument "$@")"
+      shift
+      ;;
+    -t | --transform)
+      if ! has_argument "$@"; then
+        echo "transform arg has no value." >&2
+        usage
+        exit 1
+      fi
+      text="$(extract_argument "$@")"
+      shift
+      ;;
+    -k | --key)
+      if ! has_argument "$@"; then
+        echo "transform arg has no value." >&2
+        usage
+        exit 1
+      fi
+      secret="$(extract_argument "$@")"
+      shift
+      ;;
+    esac
+    rest=$(echo "$rest $1" | xargs)
+    shift
+  done
+}
+
+# Main script execution
+handle_options "$@"
+nargs=($rest)
+
+if [ -z "$method" ] | [ -z "$action" ]; then
+  echo "$method $action $text"
+  usage
+  exit 1
+fi
+
+if [ -z "$text" ]; then
+  read -p "text: " -r text
+fi
+
+to_hex() {
+  echo -n "$1" | od -A n -t x1 | tr -d '\n' | sed 's/ *//g'
+}
+
+from_hex() {
+  bytes=$(echo -n "$text" | sed 's/\(..\)/\\x\1/g')
+  utf8_string=$(echo -n -e "$bytes")
+  echo "$utf8_string"
+}
+
+# Function to encrypt a string with AES
+aes_encrypt_string() {
+  local plaintext="$(to_hex "$1")"
+  local key="$(to_hex "$2")"
+  local iv=$(echo -n "$key" | md5sum | awk '{print $1}')
+
+  echo -n "$plaintext" | openssl enc -aes-256-cbc -a -K "$key" -iv "$iv"
+}
+
+# Function to decrypt an AES-encrypted string
+aes_decrypt_string() {
+  local encrypted_text="$1"
+  local key="$(to_hex "$2")"
+  local iv=$(echo -n "$key" | md5sum | awk '{print $1}')
+
+  echo "$encrypted_text" | openssl enc -d -aes-256-cbc -a -A -K "$key" -iv "$iv"
+}
+
+function handle_encode() {
+  case $method in
+  hex)
+    hex_string=$(to_hex "$text")
+    if arg_exists "-0x" "$rest"; then
+      echo "0x$hex_string"
+      exit 0
+    fi
+    echo "$hex_string"
+    exit 0
+    ;;
+  sha1)
+    echo -n "$text" | openssl sha1 -hex | awk '{print $2}'
+    exit 0
+    ;;
+  aes)
+    if [ -z "$secret" ] || [ "$secret" == "" ]; then
+      read -p "secret(hidden): " -s -r secret
+    fi
+    encrypted=$(aes_encrypt_string "$text" "$secret")
+    echo "$encrypted"
+    exit 0
+    ;;
+  *)
+    exit 1
+    ;;
+  esac
+}
+
+function handle_decode() {
+  case $method in
+  hex)
+    utf8_string=$(from_hex "$text")
+    echo "$utf8_string"
+    exit 0
+    ;;
+  aes)
+    if [ -z "$secret" ] || [ "$secret" == "" ]; then
+      read -p "secret(hidden): " -s -r secret
+    fi
+    decrypted=$(aes_decrypt_string "$text" "$secret")
+    echo "$decrypted"
+    exit 0
+    ;;
+  *)
+    exit 1
+    ;;
+  esac
+}
+
+if [ "$action" == "enc" ]; then
+  handle_encode "$@"
+elif [ "$action" == "dec" ]; then
+  handle_decode
+else
+  echo "Action is missing..."
+  exit 1
+fi

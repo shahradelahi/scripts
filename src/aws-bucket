@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+
+#set -x # This will print the commands as they are executed
+set -e # This will make the script exit if an error happens
+#set -u # This will make the script exit if an undefined variable is used
+#set -o pipefail # This will make the script exit if a command in a pipe fails
+
+# Install:
+#  sudo chmod +x ./aws-bucket && sudo mv ./aws-bucket /usr/bin/aws-bucket
+
+install() {
+  local sysArch="$(uname -m)"
+  if [ "$sysArch" == "armv7l" ] || [ "$sysArch" == "armv6l" ]; then
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
+  elif [ "$sysArch" == "x86_64" ]; then
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+  else
+    echo "Architecture not supported."
+    exit 1
+  fi
+
+  unzip awscliv2.zip
+  sudo ./aws/install
+
+  if [ ! -f "$(which aws)" ]; then
+    echo "AWS CLI is not installed."
+  fi
+
+  rm -rf awscliv2.zip aws
+  echo "AWS CLI is installed."
+}
+
+AwsPath="$(which aws)"
+if [ -z "$AwsPath" ]; then
+  echo "AWS CLI is not installed."
+  read -p "Do you want to install it? [y/N] " -r installAws
+  if [ "$installAws" == "y" ] || [ "$installAws" == "Y" ]; then
+    install
+  else
+    echo "AWS CLI is required."
+    exit 1
+  fi
+fi
+
+usage() {
+  cat <<EOF
+Usage: aws-bucket [OPTIONS] COMMAND [arg...]
+Options:
+  -h, --help    Show this help
+Commands:
+  ls            List buckets
+  cp            Copy files
+  rm            Remove files
+  sync          Sync files
+EOF
+}
+
+if [ $# -eq 0 ]; then
+  usage
+  exit 1
+fi
+
+function arg_exists() {
+  local found="$(echo "$1" | grep -e " $2 " -e "^$2 " -e " $2$")"
+  if [ -n "$found" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function arg_value() {
+  local from_this="$1"
+  local get_this="$2"
+  echo "$from_this" | awk -v var="$get_this" '{for(i=1;i<=NF;i++) if($i==var) print $(i+1)}'
+}
+
+function rm_arg_and_value() {
+  local from_this="$1"
+  local remove_this="$2"
+  echo "$from_this" | sed -e 's/'"$remove_this"' [^ ]*//' | sed -e 's/ \+/ /g'
+}
+
+args="$@"
+
+if arg_exists "$args" "--help" || arg_exists "$args" "-h"; then
+  echo "AWS Bucket CLI"
+  usage
+  exit 0
+fi
+
+if arg_exists "$args" "--endpoint"; then
+  aws_endpoint="$(arg_value "$args" --endpoint)"
+  args="$(rm_arg_and_value "$args" --endpoint)"
+fi
+
+if [ -z "$aws_endpoint" ]; then
+  echo "AWS Endpoint is required."
+  exit 1
+fi
+
+# Checking for if ~/.aws/credentials exists
+if [ ! -f "$HOME/.aws/credentials" ] || [ "$(cat "$HOME/.aws/credentials" | grep -c "\[bucket\]")" -eq 0 ]; then
+  read -p "AWS Access Key ID: " -r aws_access_key_id
+  read -p "AWS Secret Token: " -s -r aws_secret_access_key
+
+  mkdir -p "$HOME/.aws"
+  echo "[bucket]" >>"$HOME/.aws/credentials"
+  echo "aws_access_key_id = $aws_access_key_id" >>"$HOME/.aws/credentials"
+  echo "aws_secret_access_key = $aws_secret_access_key" >>"$HOME/.aws/credentials"
+fi
+
+function cp() {
+  local source="$1"
+  local destination="$2"
+  if [ -z "$source" ]; then
+    echo "Source is empty."
+    exit 1
+  fi
+  if [ -z "$destination" ]; then
+    echo "Destination is empty."
+    exit 1
+  fi
+  if [ -z "$aws_endpoint" ]; then
+    aws s3 --profile "bucket" cp "$source" "$destination"
+  else
+    aws s3 --profile "bucket" cp "$source" "$destination" --endpoint-url "$aws_endpoint"
+  fi
+}
+
+function handle() {
+  case "$1" in
+  cp)
+    shift
+    cp "$@"
+    ;;
+  ls)
+    shift
+    if [ -z "$aws_endpoint" ]; then
+      aws s3 --profile "bucket" ls "$@"
+    else
+      aws s3 --profile "bucket" ls "$@" --endpoint-url "$aws_endpoint"
+    fi
+    ;;
+  rm)
+    shift
+    if [ -z "$aws_endpoint" ]; then
+      aws s3 --profile "bucket" rm "$@"
+    else
+      aws s3 --profile "bucket" rm "$@" --endpoint-url "$aws_endpoint"
+    fi
+    ;;
+  sync)
+    shift
+    if [ -z "$aws_endpoint" ]; then
+      aws s3 --profile "bucket" sync "$@"
+    else
+      aws s3 --profile "bucket" sync "$@" --endpoint-url "$aws_endpoint"
+    fi
+    ;;
+  *)
+    echo "Did you forgot commands?"
+    usage
+    exit 1
+    ;;
+  esac
+}
+
+handle $args

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+Size=$1
+Swappiness=${2-"30"}
+
+if [ -n "$Size" ]; then
+
+  sudo fallocate -l $Size /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+
+  swaps=$(sudo swapon -s)
+  if [[ $swaps != *"/swapfile"* ]]; then
+    echo "ERR: Swap file not created"
+    exit 1
+  fi
+
+  sudo sed -i "/\/swapfile/d" /etc/fstab
+  sudo cp /etc/fstab /etc/fstab.bak
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+  sudo sed -i "/vm.swappiness/d" /etc/sysctl.conf
+  sudo sysctl vm.swappiness=$Swappiness
+  echo "vm.swappiness=$Swappiness" | sudo tee -a /etc/sysctl.conf
+
+  sudo sed -i "/vm.vfs_cache_pressure/d" /etc/sysctl.conf
+  sudo sysctl vm.vfs_cache_pressure=50
+  echo 'vm.vfs_cache_pressure=50' | sudo tee -a /etc/sysctl.conf
+
+  echo "Swap file created with size $Size"
+
+else
+  echo "Usage: $0 <size> <swappiness optional> <vfs_cache_pressure optional>"
+  exit 1
+fi
