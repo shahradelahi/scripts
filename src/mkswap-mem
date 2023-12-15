@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 
+set -e
+
 Size=$1
 Swappiness=${2-"30"}
+VfsCachePressure=${3-"50"}
 
 if [ -n "$Size" ]; then
 
-  sudo fallocate -l $Size /swapfile
+  sudo fallocate -l "${Size}" /swapfile
   sudo chmod 600 /swapfile
   sudo mkswap /swapfile
   sudo swapon /swapfile
@@ -18,15 +21,15 @@ if [ -n "$Size" ]; then
 
   sudo sed -i "/\/swapfile/d" /etc/fstab
   sudo cp /etc/fstab /etc/fstab.bak
-  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
 
   sudo sed -i "/vm.swappiness/d" /etc/sysctl.conf
-  sudo sysctl vm.swappiness=$Swappiness
-  echo "vm.swappiness=$Swappiness" | sudo tee -a /etc/sysctl.conf
+  sudo sysctl "vm.swappiness=${Swappiness}"
+  echo "vm.swappiness=${Swappiness}" | sudo tee -a /etc/sysctl.conf >/dev/null
 
   sudo sed -i "/vm.vfs_cache_pressure/d" /etc/sysctl.conf
-  sudo sysctl vm.vfs_cache_pressure=50
-  echo 'vm.vfs_cache_pressure=50' | sudo tee -a /etc/sysctl.conf
+  sudo sysctl "vm.vfs_cache_pressure=${VfsCachePressure}"
+  echo "vm.vfs_cache_pressure=${VfsCachePressure}" | sudo tee -a /etc/sysctl.conf >/dev/null
 
   echo "Swap file created with size $Size"
 

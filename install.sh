@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-git clone https://github.com/shahradelahi/scripts.git /tmp/script
+set -e
+
+git clone https://github.com/shahradelahi/scripts.git /tmp/scripts
 
 chmod -R +x /tmp/scripts/src
 sudo mv /tmp/scripts/src/* /usr/local/bin
