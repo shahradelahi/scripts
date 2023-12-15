@@ -3,6 +3,5 @@
 ### Install
 
 ```bash
-git clone git@github.com:shahradelahi/scripts.git &&\
-  sudo mv scripts/bin/* /usr/local/bin
+bash <(curl -fsSL https://raw.githubusercontent.com/shahradelahi/scripts/canary/install.sh)
 ```

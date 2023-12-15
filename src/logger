@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+# Yanked from https://github.com/P3TERX/warp.sh/blob/main/warp.sh
+
+FontColor_Red="\033[31m"
+FontColor_Red_Bold="\033[1;31m"
+FontColor_Green="\033[32m"
+FontColor_Cyan="\033[36m"
+FontColor_Green_Bold="\033[1;32m"
+FontColor_Yellow="\033[33m"
+FontColor_Yellow_Bold="\033[1;33m"
+FontColor_Purple="\033[35m"
+FontColor_Purple_Bold="\033[1;35m"
+FontColor_Reset="\033[0m"
+
+log() {
+    local LEVEL="$1"
+    local MSG="$2"
+    case "${LEVEL}" in
+    INFO)
+        local LEVEL="[${FontColor_Cyan}${LEVEL}${FontColor_Reset}]"
+        local MSG="${LEVEL} ${MSG}"
+        ;;
+    WARN)
+        local LEVEL="[${FontColor_Yellow}${LEVEL}${FontColor_Reset}]"
+        local MSG="${LEVEL} ${MSG}"
+        ;;
+    ERROR)
+        local LEVEL="[${FontColor_Red}${LEVEL}${FontColor_Reset}]"
+        local MSG="${LEVEL} ${MSG}"
+        ;;
+    *) ;;
+    esac
+    echo -e "${MSG}"
+}
+
+# Usage:
+#
+#   source logger
+#   log INFO "This is an INFO message."
+
+# if it was called directly, execute the function and pass all arguments to it
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    log "$@"
+fi
